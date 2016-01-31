@@ -14,6 +14,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -45,17 +46,18 @@ var (
 var (
 	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
 	secret               = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
-	salt                 = []byte("aeph2ooye5eizaemeich9weiyo2eir7S")
+	salt                 = []byte("")
 	noChallenges         = 512
-	pbkdf2Iterations     = 65536
-	filecontentsStart    []byte
-	filecontentsEnd      []byte
-	unixTime             uint64
+	pbkdf2Iterations     = 65536 * 3
 	crc32q               = crc32.MakeTable(0xD5828281)
 	powRegenIntervalBits = uint(8)
-	curPowCollection     *powCollection
-	prevPowCollection    *powCollection
-	nextPowCollection    *powCollection
+
+	curPowCollection  *powCollection
+	prevPowCollection *powCollection
+	nextPowCollection *powCollection
+	filecontentsStart []byte
+	filecontentsEnd   []byte
+	unixTime          uint64
 )
 
 type powCollection struct {
@@ -125,23 +127,25 @@ func regenPowChallenges() {
 			}
 		}
 
-		if nextPowCollection.barrier <= barrier {
-			t := time.Now()
-			atomic.StoreUintptr(
-				(*uintptr)(unsafe.Pointer(&nextPowCollection)),
-				(uintptr)(unsafe.Pointer(newPowCollection(barrier+1))),
-			)
-			deltaT = time.Now().Sub(t).Seconds()
-			logMessage("Created next set of ProofOfWork challenges in %.2fs", deltaT)
-			intervalSeconds := math.Pow(2, float64(powRegenIntervalBits))
-			if deltaT >= intervalSeconds {
-				logMessage(
-					"WARNING: Generating new Proof of Work challenges took longer (%.2fs) than the set interval (%.2fs)",
-					deltaT,
-					intervalSeconds)
-			}
-
+		if nextPowCollection.barrier > barrier {
+			continue
 		}
+
+		t := time.Now()
+		atomic.StoreUintptr(
+			(*uintptr)(unsafe.Pointer(&nextPowCollection)),
+			(uintptr)(unsafe.Pointer(newPowCollection(barrier+1))),
+		)
+		deltaT = time.Now().Sub(t).Seconds()
+		logMessage("Created next set of ProofOfWork challenges in %.2fs", deltaT)
+		intervalSeconds := math.Pow(2, float64(powRegenIntervalBits))
+		if deltaT >= intervalSeconds {
+			logMessage(
+				"WARNING: Generating new Proof of Work challenges took longer (%.2fs) than the set interval (%.2fs)",
+				deltaT,
+				intervalSeconds)
+		}
+
 	}
 }
 
@@ -170,9 +174,21 @@ func newPowCollection(barrier uint64) *powCollection {
 			secret: sha256.Sum256(powSecret),
 		}
 
-		challenge.proof = pbkdf2.Key(challenge.secret[:], salt, pbkdf2Iterations, 32, sha256.New)
 		newPowCollection.challenges = append(newPowCollection.challenges, challenge)
 	}
+
+	c := make(chan *powChallenge)
+	for i := 0; i < runtime.GOMAXPROCS(0)/2; i++ {
+		go func(c chan *powChallenge) {
+			for challenge := range c {
+				challenge.proof = pbkdf2.Key(challenge.secret[:], salt, pbkdf2Iterations, 32, sha256.New)
+			}
+		}(c)
+	}
+	for _, challenge := range newPowCollection.challenges {
+		c <- challenge
+	}
+	close(c)
 
 	return newPowCollection
 }
