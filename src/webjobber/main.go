@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/binary"
 	"flag"
 	"fmt"
 	"golang.org/x/crypto/pbkdf2"
+	"hash/crc32"
 	"io/ioutil"
 	"log"
 	"math"
@@ -22,9 +24,15 @@ import (
 	"github.com/vharitonsky/iniflags"
 )
 
-const authKeyWindowBits = 2
+const authKeyWindowBits = 3
 
 var (
+	strCacheControlK   = []byte("Cache-Control")
+	strCacheControlV   = []byte("no-cache, no-store, must-revalidate")
+	strPragmaK         = []byte("Pragma")
+	strPragmaV         = []byte("no-cache")
+	strExpires         = []byte("Expires")
+	strZero            = []byte("0")
 	strAuthKey         = []byte("authkey")
 	strContentTypeHtml = []byte("text/html; charset=utf-8")
 	strLocation        = []byte("Location")
@@ -35,15 +43,16 @@ var (
 )
 
 var (
-	listenAddrs      = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
-	secret           = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
-	salt             = []byte("aeph2ooye5eizaemeich9weiyo2eir7S")
-	noChallenges     = 150
-	pbkdf2Iterations = 32768
-	filecontents     []byte
-	unixTime         uint64
-	//	powRegenIntervalBits = uint(6)
-	powRegenIntervalBits = uint(5)
+	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
+	secret               = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
+	salt                 = []byte("aeph2ooye5eizaemeich9weiyo2eir7S")
+	noChallenges         = 512
+	pbkdf2Iterations     = 65536
+	filecontentsStart    []byte
+	filecontentsEnd      []byte
+	unixTime             uint64
+	crc32q               = crc32.MakeTable(0xD5828281)
+	powRegenIntervalBits = uint(8)
 	curPowCollection     *powCollection
 	prevPowCollection    *powCollection
 	nextPowCollection    *powCollection
@@ -66,14 +75,20 @@ func main() {
 
 	unixTime = uint64(time.Now().Unix())
 	initPow()
-	go regenPow()
+	go regenPowChallenges()
 	go updateTime()
 
 	dat, err := ioutil.ReadFile("./serve.html")
 	if err != nil {
 		panic(err)
 	}
-	filecontents = dat
+
+	pos := bytes.Index(dat, []byte("CHALLENGEPLACEHOLDER"))
+	if pos == -1 {
+		panic("Placeholder not found")
+	}
+	filecontentsStart = dat[:pos]
+	filecontentsEnd = dat[pos+len("CHALLENGEPLACEHOLDER"):]
 
 	var addr string
 	for _, addr = range strings.Split(*listenAddrs, ",") {
@@ -84,7 +99,7 @@ func main() {
 	<-waitForeverCh
 }
 
-func regenPow() {
+func regenPowChallenges() {
 	c := time.Tick(100 * time.Millisecond)
 	var deltaT float64
 	for _ = range c {
@@ -194,6 +209,22 @@ func serve(ln net.Listener) {
 	s.Serve(ln)
 }
 
+func getChallengeForAuthKey(authKey []byte, base64Encode bool) []byte {
+	index := int(math.Mod(float64(crc32.Checksum(authKey, crc32q)), float64(noChallenges)))
+	for _, challenge := range curPowCollection.challenges {
+		if challenge.idx == index && base64Encode {
+			buf := make([]byte, base64.StdEncoding.EncodedLen(len(challenge.secret[:])))
+			base64.StdEncoding.Encode(buf, challenge.secret[:])
+			return buf
+		}
+		if challenge.idx == index {
+			return challenge.secret[:]
+		}
+	}
+
+	panic("Challenge not found?")
+}
+
 func requestHandler(ctx *fasthttp.RequestCtx) {
 	uri := ctx.RequestURI()
 
@@ -211,21 +242,13 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	//	fmt.Println(string())
-
-	/*	rh := &ctx.Request.Header
-		ua := rh.PeekBytes([]byte("User-Agent"))
-
-		cookie := &fasthttp.Cookie {}
-		cookie.SetKeyBytes([]byte("X-WebJobber-Challenge"))
-		cookie.SetValueBytes(append(ctx.RemoteIP(), ua...))*/
-
-	//	 Graciously much. But must keep in account computers with skewed clocks
-	//	cookie.SetExpire(just5Minutes)
-
-	//	ctx.Response.Header.SetCookie(cookie)
+	ctx.Response.Header.SetBytesKV(strCacheControlK, strCacheControlV)
+	ctx.Response.Header.SetBytesKV(strPragmaK, strPragmaV)
+	ctx.Response.Header.SetBytesKV(strExpires, strZero)
 	ctx.SetContentTypeBytes(strContentTypeHtml)
-	ctx.SetBody(filecontents)
+	ctx.Response.AppendBody(filecontentsStart)
+	ctx.Response.AppendBody(getChallengeForAuthKey(getAuthKey(ctx, unixTime), true))
+	ctx.Response.AppendBody(filecontentsEnd)
 }
 
 func hasValidAuthKey(ctx *fasthttp.RequestCtx) bool {
@@ -254,7 +277,7 @@ func getAuthKey(ctx *fasthttp.RequestCtx, unixTime uint64) []byte {
 
 	checksum := sha256.Sum256(value)
 	authKeyPool.Put(v)
-	return []byte(base32.HexEncoding.EncodeToString(checksum[:]))
+	return []byte(base32.HexEncoding.EncodeToString(checksum[:]))[:32]
 }
 
 func isAuthenticated(ctx *fasthttp.RequestCtx) bool {
