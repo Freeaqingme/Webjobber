@@ -46,9 +46,10 @@ var (
 
 var (
 	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
-	secret               = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
+	authkeySecret        = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
 	salt                 = []byte("")
 	noChallenges         = 512
+	pbkdfSecret          = []byte("Gu8aimeih3oev2Kae6kooshoo9iej1me7aoquieShueze6Faelang0ruu0ooquai")
 	pbkdf2Iterations     = 65536 * 3
 	crc32q               = crc32.MakeTable(0xD5828281)
 	powRegenIntervalBits = uint(8)
@@ -69,7 +70,7 @@ type powCollection struct {
 
 type powChallenge struct {
 	idx    int
-	secret [32]byte
+	secret []byte
 	proof  []byte
 }
 
@@ -172,13 +173,17 @@ func newPowCollection(barrier uint64) *powCollection {
 	}
 
 	for i := 0; i < noChallenges; i++ {
-		powSecret := make([]byte, 8)
-		binary.LittleEndian.PutUint64(powSecret, barrier)
-		powSecret = append(append(powSecret, secret...), byte(i))
+		message := make([]byte, 8)
+		message = append(message, byte(i))
+		binary.LittleEndian.PutUint64(message, barrier)
+
+		mac := hmac.New(sha256.New, pbkdfSecret)
+		mac.Write(message)
+		fmt.Println(message)
 
 		challenge := &powChallenge{
 			idx:    i,
-			secret: sha256.Sum256(powSecret),
+			secret: mac.Sum(nil),
 		}
 
 		newPowCollection.challenges = append(newPowCollection.challenges, challenge)
@@ -308,9 +313,8 @@ func getAuthKey(ctx *fasthttp.RequestCtx, unixTime uint64) []byte {
 
 	binary.LittleEndian.PutUint64(message, unixTime>>authKeyWindowBits)
 	copy(message[8:], []byte(ctx.RemoteIP()))
-	fmt.Println(message, secret)
 
-	mac := hmac.New(sha256.New, secret)
+	mac := hmac.New(sha256.New, authkeySecret)
 	mac.Write(message)
 	mac.Sum(nil)
 
