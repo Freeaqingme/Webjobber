@@ -24,6 +24,7 @@ import (
 
 	"github.com/Freeaqingme/fasthttp"
 	"github.com/vharitonsky/iniflags"
+	"hash"
 )
 
 const authKeyWindowBits = 3
@@ -179,8 +180,6 @@ func newPowCollection(barrier uint64) *powCollection {
 
 		mac := hmac.New(sha256.New, pbkdfSecret)
 		mac.Write(message)
-		fmt.Println(message)
-
 		challenge := &powChallenge{
 			idx:    i,
 			secret: mac.Sum(nil),
@@ -301,25 +300,25 @@ func hasValidAuthKey(ctx *fasthttp.RequestCtx) bool {
 		hmac.Equal(key, getAuthKey(ctx, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2))))
 }
 
-var authKeyPool = &sync.Pool{
+var authKeyMacPool = &sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 8+16)
+		return hmac.New(sha256.New, authkeySecret)
 	},
 }
 
 func getAuthKey(ctx *fasthttp.RequestCtx, unixTime uint64) []byte {
-	v := authKeyPool.Get()
-	message := v.([]byte)
-
+	message := make([]byte, 24)
 	binary.LittleEndian.PutUint64(message, unixTime>>authKeyWindowBits)
 	copy(message[8:], []byte(ctx.RemoteIP()))
 
-	mac := hmac.New(sha256.New, authkeySecret)
+	mac := authKeyMacPool.Get().(hash.Hash)
+	mac.Reset()
+	defer authKeyMacPool.Put(mac)
 	mac.Write(message)
-	mac.Sum(nil)
 
-	authKeyPool.Put(v)
-	return []byte(base32.HexEncoding.EncodeToString(mac.Sum(nil)))[:32]
+	out := make([]byte, 56)
+	base32.HexEncoding.Encode(out, mac.Sum(nil))
+	return out
 }
 
 func isAuthenticated(ctx *fasthttp.RequestCtx) bool {
@@ -331,7 +330,7 @@ var redirectDstPool = &sync.Pool{
 	New: func() interface{} {
 		out := make([]byte, 0)
 		out = append(out, strUrlRedirect...)
-		out = append(out, []byte("00000000000000000000000000000000")...)
+		out = append(out, []byte("00000000000000000000000000000000000000000000000000000000")...)
 		out = append(out, strRedirectParam...)
 		return out
 	},
@@ -340,8 +339,7 @@ var redirectDstPool = &sync.Pool{
 func redirectToValidate(ctx *fasthttp.RequestCtx, updateRedirectParam bool) {
 	v := redirectDstPool.Get()
 	dst := v.([]byte)
-
-	copy(dst[len(strUrlRedirect):len(strUrlRedirect)+32], getAuthKey(ctx, unixTime))
+	copy(dst[len(strUrlRedirect):len(strUrlRedirect)+56], getAuthKey(ctx, unixTime))
 
 	uri := ctx.RequestURI()
 	if updateRedirectParam {
