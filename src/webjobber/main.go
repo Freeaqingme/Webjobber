@@ -80,6 +80,17 @@ func main() {
 	go regenPowChallenges()
 	go updateTime()
 
+	loadHtmlFile()
+	var addr string
+	for _, addr = range strings.Split(*listenAddrs, ",") {
+		go serveHttp(addr)
+	}
+
+	waitForeverCh := make(chan int)
+	<-waitForeverCh
+}
+
+func loadHtmlFile() {
 	dat, err := ioutil.ReadFile("./serve.html")
 	if err != nil {
 		panic(err)
@@ -91,14 +102,6 @@ func main() {
 	}
 	filecontentsStart = dat[:pos]
 	filecontentsEnd = dat[pos+len("CHALLENGEPLACEHOLDER"):]
-
-	var addr string
-	for _, addr = range strings.Split(*listenAddrs, ",") {
-		go serveHttp(addr)
-	}
-
-	waitForeverCh := make(chan int)
-	<-waitForeverCh
 }
 
 func regenPowChallenges() {
@@ -127,26 +130,29 @@ func regenPowChallenges() {
 			}
 		}
 
-		if nextPowCollection.barrier > barrier {
-			continue
+		if nextPowCollection.barrier <= barrier {
+			deltaT = updateNextPowCollection(barrier)
 		}
-
-		t := time.Now()
-		atomic.StoreUintptr(
-			(*uintptr)(unsafe.Pointer(&nextPowCollection)),
-			(uintptr)(unsafe.Pointer(newPowCollection(barrier+1))),
-		)
-		deltaT = time.Now().Sub(t).Seconds()
-		logMessage("Created next set of ProofOfWork challenges in %.2fs", deltaT)
-		intervalSeconds := math.Pow(2, float64(powRegenIntervalBits))
-		if deltaT >= intervalSeconds {
-			logMessage(
-				"WARNING: Generating new Proof of Work challenges took longer (%.2fs) than the set interval (%.2fs)",
-				deltaT,
-				intervalSeconds)
-		}
-
 	}
+}
+
+func updateNextPowCollection(barrier uint64) (deltaT float64) {
+	t := time.Now()
+	atomic.StoreUintptr(
+		(*uintptr)(unsafe.Pointer(&nextPowCollection)),
+		(uintptr)(unsafe.Pointer(newPowCollection(barrier+1))),
+	)
+	deltaT = time.Now().Sub(t).Seconds()
+	logMessage("Created next set of ProofOfWork challenges in %.2fs", deltaT)
+	intervalSeconds := math.Pow(2, float64(powRegenIntervalBits))
+	if deltaT >= intervalSeconds {
+		logMessage(
+			"WARNING: Generating new Proof of Work challenges took longer (%.2fs) than the set interval (%.2fs)",
+			deltaT,
+			intervalSeconds)
+	}
+
+	return
 }
 
 func initPow() {
@@ -177,20 +183,32 @@ func newPowCollection(barrier uint64) *powCollection {
 		newPowCollection.challenges = append(newPowCollection.challenges, challenge)
 	}
 
+	solveChallenges(newPowCollection)
+	return newPowCollection
+}
+
+func solveChallenges(collection *powCollection) {
+	procs := runtime.GOMAXPROCS(0)/2
+	if curPowCollection == nil {
+		procs = procs * 2
+	}
+
 	c := make(chan *powChallenge)
-	for i := 0; i < runtime.GOMAXPROCS(0)/2; i++ {
+	for i := 0; i < procs; i++ {
 		go func(c chan *powChallenge) {
+			if runtime.GOMAXPROCS(0) == procs && procs != 1 {
+				// We want to do the initial ASAP during start-up.
+				runtime.LockOSThread()
+			}
 			for challenge := range c {
 				challenge.proof = pbkdf2.Key(challenge.secret[:], salt, pbkdf2Iterations, 32, sha256.New)
 			}
 		}(c)
 	}
-	for _, challenge := range newPowCollection.challenges {
+	for _, challenge := range collection.challenges {
 		c <- challenge
 	}
 	close(c)
-
-	return newPowCollection
 }
 
 func updateTime() {
