@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base32"
 	"encoding/base64"
@@ -188,7 +189,7 @@ func newPowCollection(barrier uint64) *powCollection {
 }
 
 func solveChallenges(collection *powCollection) {
-	procs := runtime.GOMAXPROCS(0)/2
+	procs := runtime.GOMAXPROCS(0) / 2
 	if curPowCollection == nil {
 		procs = procs * 2
 	}
@@ -291,27 +292,30 @@ func hasValidAuthKey(ctx *fasthttp.RequestCtx) bool {
 		return false
 	}
 
-	return bytes.Equal(key, getAuthKey(ctx, unixTime)) ||
-		bytes.Equal(key, getAuthKey(ctx, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2))))
+	return hmac.Equal(key, getAuthKey(ctx, unixTime)) ||
+		hmac.Equal(key, getAuthKey(ctx, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2))))
 }
 
 var authKeyPool = &sync.Pool{
 	New: func() interface{} {
-		return make([]byte, 8+len(secret)+16)
+		return make([]byte, 8+16)
 	},
 }
 
 func getAuthKey(ctx *fasthttp.RequestCtx, unixTime uint64) []byte {
 	v := authKeyPool.Get()
-	value := v.([]byte)
+	message := v.([]byte)
 
-	binary.LittleEndian.PutUint64(value, unixTime>>authKeyWindowBits)
-	copy(value[8:len(secret)], secret)
-	copy(value[8+len(secret):], []byte(ctx.RemoteIP()))
+	binary.LittleEndian.PutUint64(message, unixTime>>authKeyWindowBits)
+	copy(message[8:], []byte(ctx.RemoteIP()))
+	fmt.Println(message, secret)
 
-	checksum := sha256.Sum256(value)
+	mac := hmac.New(sha256.New, secret)
+	mac.Write(message)
+	mac.Sum(nil)
+
 	authKeyPool.Put(v)
-	return []byte(base32.HexEncoding.EncodeToString(checksum[:]))[:32]
+	return []byte(base32.HexEncoding.EncodeToString(mac.Sum(nil)))[:32]
 }
 
 func isAuthenticated(ctx *fasthttp.RequestCtx) bool {
