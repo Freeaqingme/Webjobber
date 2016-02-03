@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
 	"golang.org/x/crypto/pbkdf2"
 	"hash/crc32"
 	"math"
@@ -16,7 +17,7 @@ import (
 
 var (
 	pbkdfSecret       = []byte("Gu8aimeih3oev2Kae6kooshoo9iej1me7aoquieShueze6Faelang0ruu0ooquai")
-	pbkdf2Iterations  = 65536 * 3
+	pbkdf2Iterations  = 65535 * 3
 	curPowCollection  *powCollection
 	prevPowCollection *powCollection
 	nextPowCollection *powCollection
@@ -36,7 +37,8 @@ func solveChallenges(collection *powCollection) {
 				runtime.LockOSThread()
 			}
 			for challenge := range c {
-				challenge.proof = pbkdf2.Key(challenge.secret[:], strEmpty, pbkdf2Iterations, 32, sha256.New)
+				rawProof := pbkdf2.Key(challenge.secret[:], strEmpty, pbkdf2Iterations, 32, sha256.New)
+				challenge.proof = []byte(hex.EncodeToString(rawProof))
 			}
 		}(c)
 	}
@@ -52,6 +54,7 @@ func getChallengeForAuthKey(authKey []byte, base64Encode bool) []byte {
 		if challenge.idx == index && base64Encode {
 			buf := make([]byte, base64.StdEncoding.EncodedLen(len(challenge.secret[:])))
 			base64.StdEncoding.Encode(buf, challenge.secret[:])
+
 			return buf
 		}
 		if challenge.idx == index {

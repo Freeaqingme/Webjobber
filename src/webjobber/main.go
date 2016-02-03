@@ -38,7 +38,7 @@ var (
 var (
 	listenAddrs          = flag.String("listenAddrs", ":8098", "A list of TCP addresses to listen to HTTP requests. Leave empty if you don't need http")
 	strEmpty             = []byte("")
-	noChallenges         = 5 //12
+	noChallenges         = 1 //12
 	crc32q               = crc32.MakeTable(0xD5828281)
 	powRegenIntervalBits = uint(8)
 
