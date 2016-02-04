@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -13,6 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/Freeaqingme/fasthttp"
 )
 
 var (
@@ -22,6 +25,18 @@ var (
 	prevPowCollection *powCollection
 	nextPowCollection *powCollection
 )
+
+type powCollection struct {
+	created    uint64
+	barrier    uint64
+	challenges []*powChallenge
+}
+
+type powChallenge struct {
+	idx    int
+	secret []byte
+	proof  []byte
+}
 
 func solveChallenges(collection *powCollection) {
 	procs := runtime.GOMAXPROCS(0) / 2
@@ -49,7 +64,7 @@ func solveChallenges(collection *powCollection) {
 }
 
 func getChallengeForAuthKey(authKey []byte, base64Encode bool) []byte {
-	index := int(math.Mod(float64(crc32.Checksum(authKey, crc32q)), float64(noChallenges)))
+	index := powGetCollectionIndexFromAuthKey(authKey)
 	for _, challenge := range curPowCollection.challenges {
 		if challenge.idx == index && base64Encode {
 			buf := make([]byte, base64.StdEncoding.EncodedLen(len(challenge.secret[:])))
@@ -63,6 +78,10 @@ func getChallengeForAuthKey(authKey []byte, base64Encode bool) []byte {
 	}
 
 	panic("Challenge not found?")
+}
+
+func powGetCollectionIndexFromAuthKey(authKey []byte) int {
+	return int(math.Mod(float64(crc32.Checksum(authKey, crc32q)), float64(noChallenges)))
 }
 
 func regenPowChallenges() {
@@ -148,4 +167,27 @@ func newPowCollection(barrier uint64) *powCollection {
 
 	solveChallenges(newPowCollection)
 	return newPowCollection
+}
+
+func powIsValid(ctx *fasthttp.RequestCtx) bool {
+	idx := powGetCollectionIndexFromAuthKey(getAuthKey(ctx, unixTime))
+	answer := ctx.PostArgs().PeekBytes([]byte("result"))
+
+	if len(answer) == 0 {
+		return false
+	}
+
+	for _, challenge := range curPowCollection.challenges {
+		if challenge.idx == idx && subtle.ConstantTimeCompare(challenge.proof, answer) == 1 {
+			return true
+		}
+	}
+
+	for _, challenge := range prevPowCollection.challenges {
+		if challenge.idx == idx && subtle.ConstantTimeCompare(challenge.proof, answer) == 1 {
+			return true
+		}
+	}
+
+	return false
 }

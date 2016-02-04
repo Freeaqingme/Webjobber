@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,18 +48,6 @@ var (
 	unixTime          uint64
 )
 
-type powCollection struct {
-	created    uint64
-	barrier    uint64
-	challenges []*powChallenge
-}
-
-type powChallenge struct {
-	idx    int
-	secret []byte
-	proof  []byte
-}
-
 func main() {
 	iniflags.Parse()
 
@@ -87,8 +76,13 @@ func loadHtmlFile() {
 	if pos == -1 {
 		panic("Placeholder not found")
 	}
+
 	filecontentsStart = dat[:pos]
 	filecontentsEnd = dat[pos+len("CHALLENGEPLACEHOLDER"):]
+
+	pbkdf2IterationsBytes := []byte(strconv.Itoa(pbkdf2Iterations))
+	filecontentsStart = bytes.Replace(filecontentsStart, []byte("PBKDFITERATIONS"), pbkdf2IterationsBytes, -1)
+	filecontentsEnd = bytes.Replace(filecontentsEnd, []byte("PBKDFITERATIONS"), pbkdf2IterationsBytes, -1)
 }
 
 func updateTime() {
@@ -137,6 +131,16 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 
 	if !hasValidAuthKey(ctx) {
 		redirectToValidate(ctx, false)
+		return
+	}
+
+	if ctx.IsPost() {
+		ctx.Response.AppendBody([]byte(fmt.Sprintf("Would you be let through? %t\n\n", powIsValid(ctx))))
+		if powIsValid(ctx) {
+			// TODO: Set ticket, pass t hrough to original url
+		} else {
+			// TODO: Display error?
+		}
 		return
 	}
 

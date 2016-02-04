@@ -11,7 +11,7 @@
 <div class="container">
     <div class="content">
         <div class="box">
-            <h4>Checking a few things, please wait&hellip;</h4>
+            <h4>We're performing some security things, please wait&hellip;</h4>
             <p>This process is automatic. Your browser will redirect shortly.</p>
             <noscript>
                 <p class="noscript">Please turn on JavaScript and reload the page.</p>
@@ -26,7 +26,7 @@
 
 <script>
     /**
-     * Source: https://github.com/bitwiseshiftleft/sjcl/blob/master/sjcl.js
+     * Source: https://github.com/bitwiseshiftleft/sjcl/
      * Revision: d17529b
      * License: BSD 2-clause
      *      Copyright (c) 2009-2015, Emily Stark, Mike Hamburg and Dan Boneh at
@@ -92,7 +92,7 @@
         null!=d[3]?b[d[2]]=parseInt(d[3],10):null!=d[4]?b[d[2]]=d[2].match(/^(ct|adata|salt|iv)$/)?sjcl.codec.base64.toBits(d[4]):unescape(d[4]):null!=d[5]&&(b[d[2]]="true"===d[5])}return b},g:function(a,b,c){void 0===a&&(a={});if(void 0===b)return a;for(var d in b)if(b.hasOwnProperty(d)){if(c&&void 0!==a[d]&&a[d]!==b[d])throw new sjcl.exception.invalid("required parameter overridden");a[d]=b[d]}return a},sa:function(a,b){var c={},d;for(d in a)a.hasOwnProperty(d)&&a[d]!==b[d]&&(c[d]=a[d]);return c},ra:function(a,
                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     b){var c={},d;for(d=0;d<b.length;d++)void 0!==a[b[d]]&&(c[b[d]]=a[b[d]]);return c}};sjcl.encrypt=sjcl.json.encrypt;sjcl.decrypt=sjcl.json.decrypt;sjcl.misc.pa={};sjcl.misc.cachedPbkdf2=function(a,b){var c=sjcl.misc.pa,d;b=b||{};d=b.iter||1E3;c=c[a]=c[a]||{};d=c[d]=c[d]||{firstSalt:b.salt&&b.salt.length?b.salt.slice(0):sjcl.random.randomWords(2,0)};c=void 0===b.salt?d.firstSalt:b.salt;d[c]=d[c]||sjcl.misc.pbkdf2(a,c,b.iter);return{key:d[c].slice(0),salt:c.slice(0)}};
 
-    var result = sjcl.codec.hex.fromBits(sjcl.misc.pbkdf2(sjcl.codec.base64.toBits(document.getElementById("challenge").value),"",(65535*3)));
+    var result = sjcl.codec.hex.fromBits(sjcl.misc.pbkdf2(sjcl.codec.base64.toBits(document.getElementById("challenge").value),"",PBKDFITERATIONS));
     document.getElementById("result").value = result;
     document.getElementById("challenge-form").submit();
 </script>
