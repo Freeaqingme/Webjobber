@@ -14,8 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
-
-	"github.com/Freeaqingme/fasthttp"
 )
 
 var (
@@ -169,9 +167,9 @@ func newPowCollection(barrier uint64) *powCollection {
 	return newPowCollection
 }
 
-func powIsValid(ctx *fasthttp.RequestCtx) bool {
-	idx := powGetCollectionIndexFromAuthKey(getAuthKey(ctx, unixTime))
-	answer := ctx.PostArgs().PeekBytes([]byte("result"))
+func powIsValid(r *httpRequest) bool {
+	idx := powGetCollectionIndexFromAuthKey(getAuthKey(r, unixTime))
+	answer := r.PostArgs().PeekBytes([]byte("result"))
 
 	if len(answer) == 0 {
 		return false

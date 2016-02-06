@@ -117,13 +117,23 @@ func serve(ln net.Listener) {
 	s.Serve(ln)
 }
 
-func requestHandler(ctx *fasthttp.RequestCtx) {
-	uri := ctx.RequestURI()
+type httpRequest struct {
+	*fasthttp.RequestCtx
+}
 
-	if isAuthenticated(ctx) {
-		// passthrough
-		return
+func requestHandler(ctx *fasthttp.RequestCtx) {
+	flowEnter(&httpRequest{ctx})
+	return
+
+//	uri := ctx.RequestURI()
+
+/*
+
+	if hasTicket(ctx) {
+		goto hitRatelimit
 	}
+
+	hitRateLimit
 	if !bytes.HasPrefix(uri, strUrlPrefix) {
 		redirectToValidate(ctx, true)
 		return
@@ -142,18 +152,18 @@ func requestHandler(ctx *fasthttp.RequestCtx) {
 			// TODO: Display error?
 		}
 		return
-	}
-
+	}*/
+/*
 	ctx.Response.Header.SetBytesKV(strCacheControlK, strCacheControlV)
 	ctx.Response.Header.SetBytesKV(strPragmaK, strPragmaV)
 	ctx.Response.Header.SetBytesKV(strExpires, strZero)
 	ctx.SetContentTypeBytes(strContentTypeHtml)
 	ctx.Response.AppendBody(filecontentsStart)
-	ctx.Response.AppendBody(getChallengeForAuthKey(getAuthKey(ctx, unixTime), true))
-	ctx.Response.AppendBody(filecontentsEnd)
+	ctx.Response.AppendBody(getChallengeForAuthKey(getAuthKey(r, unixTime), true))
+	ctx.Response.AppendBody(filecontentsEnd)*/
 }
 
-func isAuthenticated(ctx *fasthttp.RequestCtx) bool {
+func hasTicket(ctx *fasthttp.RequestCtx) bool {
 	// todo
 	return false
 }
@@ -168,27 +178,7 @@ var redirectDstPool = &sync.Pool{
 	},
 }
 
-func redirectToValidate(ctx *fasthttp.RequestCtx, updateRedirectParam bool) {
-	v := redirectDstPool.Get()
-	dst := v.([]byte)
-	copy(dst[len(strUrlRedirect):len(strUrlRedirect)+56], getAuthKey(ctx, unixTime))
 
-	uri := ctx.RequestURI()
-	if updateRedirectParam {
-		dst = append(dst, uri...)
-	} else {
-		pos := bytes.Index(uri, strRedirectParam)
-		if pos != -1 {
-			dst = append(dst, uri[pos+len(strRedirectParam):]...)
-		} else {
-			dst = append(dst, strSlash...)
-		}
-	}
-
-	ctx.Response.Header.SetBytesKV(strLocation, dst)
-	ctx.Response.Header.SetStatusCode(302)
-	redirectDstPool.Put(v)
-}
 
 func logRequestError(h *fasthttp.RequestHeader, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)
