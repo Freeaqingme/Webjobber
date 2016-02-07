@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 )
 
 const (
@@ -37,7 +38,7 @@ type fsmEndpoint struct {
 // See also fsm.dia that visualizes this flow
 func init() {
 	reg := fsmRegisterTransition
-	reg(&fsmTransition{fsmHasTicket, (*httpRequest).hasTicket, fsmVoid /* fsmHitRateLimit */, fsmRequestedPoWPage})
+	reg(&fsmTransition{fsmHasTicket, (*httpRequest).powHasValidTicket, fsmVoid /* fsmHitRateLimit */, fsmRequestedPoWPage})
 	reg(&fsmTransition{fsmRequestedPoWPage, (*httpRequest).requestedPoWPage, fsmHasValidAuthKey, fsmProtectedUrl})
 	reg(&fsmTransition{fsmHasValidAuthKey, (*httpRequest).hasValidAuthKey, fsmIsPost, fsmRedirectToPoW})
 	reg(&fsmTransition{fsmIsPost, (*httpRequest).IsPost, fsmPowIsValid, fsmServePoW})
@@ -47,6 +48,10 @@ func init() {
 	fsmRegisterEndpoint(&fsmEndpoint{fsmRedirectToPoW, redirectToServePoW})
 	fsmRegisterEndpoint(&fsmEndpoint{fsmServePoW, powServeHtml})
 	fsmRegisterEndpoint(&fsmEndpoint{fsmPoWGrantTicket, powGrantTicket})
+	fsmRegisterEndpoint(&fsmEndpoint{fsmVoid, func(r *httpRequest) {
+		fmt.Println("Void endpoint reached")
+		r.Response.AppendBody([]byte("Void"))
+	}})
 }
 
 func fsmEnter(r *httpRequest) {
@@ -72,10 +77,6 @@ func fsmRun(r *httpRequest, id int, count int) {
 		id = fsmTransitions[id].ifTrue
 	} else {
 		id = fsmTransitions[id].ifFalse
-	}
-
-	if id == fsmVoid {
-		return
 	}
 
 	count++
@@ -108,10 +109,6 @@ func fsmRegisterEndpoint(endpoint *fsmEndpoint) {
 	}
 
 	fsmEndpoints[endpoint.id] = endpoint
-}
-
-func (r *httpRequest) hasTicket() bool {
-	return false // todo
 }
 
 func (r *httpRequest) isProtectedUrl() bool {

@@ -33,7 +33,7 @@ var (
 	strSlash           = []byte("/")
 	strUrlPrefix       = []byte("/_securityValidation/")
 	strUrlRedirect     = append(strUrlPrefix, []byte("?authkey=")...)
-	strTicketKey       = []byte("_securityValidation")
+	strTicketKey       = []byte("securityValidation")
 )
 
 var (

@@ -20,7 +20,7 @@ import (
 	"github.com/Freeaqingme/fasthttp"
 )
 
-const ticketWindowBits = 9
+const ticketWindowBits = 8
 
 var (
 	pbkdfSecret       = []byte("Gu8aimeih3oev2Kae6kooshoo9iej1me7aoquieShueze6Faelang0ruu0ooquai")
@@ -246,10 +246,18 @@ func powGrantTicket(r *httpRequest) {
 	}
 
 	cookie := &fasthttp.Cookie{}
-	cookie.SetValueBytes(getAuthKey(r, unixTime, ticketWindowBits))
 	cookie.SetKeyBytes(strTicketKey)
+	cookie.SetValueBytes(getAuthKey(r, unixTime, ticketWindowBits))
+	cookie.SetPathBytes([]byte("/"))
+	cookie.SetExpire(time.Now().Add(time.Duration(math.Pow(2, float64(ticketWindowBits))) * time.Second))
 
 	r.Response.Header.SetBytesKV(strLocation, r.RequestURI()[count:])
 	r.Response.Header.SetStatusCode(302)
 	r.Response.Header.SetCookie(cookie)
+}
+
+func (r *httpRequest) powHasValidTicket() bool {
+	key := r.Request.Header.CookieBytes(strTicketKey)
+	valid := authKeyIsValid(key, r, ticketWindowBits)
+	return valid
 }

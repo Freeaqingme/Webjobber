@@ -16,12 +16,17 @@ var (
 
 func (r *httpRequest) hasValidAuthKey() bool {
 	key := r.QueryArgs().PeekBytes(strAuthKey)
+
+	return authKeyIsValid(key, r, authKeyWindowBits)
+}
+
+func authKeyIsValid(key []byte, r *httpRequest, windowBits uint) bool {
 	if len(key) == 0 {
 		return false
 	}
 
-	return hmac.Equal(key, getAuthKey(r, unixTime, authKeyWindowBits)) ||
-		hmac.Equal(key, getAuthKey(r, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2)), authKeyWindowBits))
+	return hmac.Equal(key, getAuthKey(r, unixTime, windowBits)) ||
+		hmac.Equal(key, getAuthKey(r, unixTime-2-uint64(math.Pow(float64(windowBits), 2)), windowBits))
 }
 
 var authKeyMacPool = &sync.Pool{
