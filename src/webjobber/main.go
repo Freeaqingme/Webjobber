@@ -10,7 +10,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,6 +33,7 @@ var (
 	strSlash           = []byte("/")
 	strUrlPrefix       = []byte("/_securityValidation/")
 	strUrlRedirect     = append(strUrlPrefix, []byte("?authkey=")...)
+	strTicketKey       = []byte("_securityValidation")
 )
 
 var (
@@ -122,63 +122,8 @@ type httpRequest struct {
 }
 
 func requestHandler(ctx *fasthttp.RequestCtx) {
-	flowEnter(&httpRequest{ctx})
-	return
-
-//	uri := ctx.RequestURI()
-
-/*
-
-	if hasTicket(ctx) {
-		goto hitRatelimit
-	}
-
-	hitRateLimit
-	if !bytes.HasPrefix(uri, strUrlPrefix) {
-		redirectToValidate(ctx, true)
-		return
-	}
-
-	if !hasValidAuthKey(ctx) {
-		redirectToValidate(ctx, false)
-		return
-	}
-
-	if ctx.IsPost() {
-		ctx.Response.AppendBody([]byte(fmt.Sprintf("Would you be let through? %t\n\n", powIsValid(ctx))))
-		if powIsValid(ctx) {
-			// TODO: Set ticket, pass t hrough to original url
-		} else {
-			// TODO: Display error?
-		}
-		return
-	}*/
-/*
-	ctx.Response.Header.SetBytesKV(strCacheControlK, strCacheControlV)
-	ctx.Response.Header.SetBytesKV(strPragmaK, strPragmaV)
-	ctx.Response.Header.SetBytesKV(strExpires, strZero)
-	ctx.SetContentTypeBytes(strContentTypeHtml)
-	ctx.Response.AppendBody(filecontentsStart)
-	ctx.Response.AppendBody(getChallengeForAuthKey(getAuthKey(r, unixTime), true))
-	ctx.Response.AppendBody(filecontentsEnd)*/
+	fsmEnter(&httpRequest{ctx})
 }
-
-func hasTicket(ctx *fasthttp.RequestCtx) bool {
-	// todo
-	return false
-}
-
-var redirectDstPool = &sync.Pool{
-	New: func() interface{} {
-		out := make([]byte, 0)
-		out = append(out, strUrlRedirect...)
-		out = append(out, []byte("00000000000000000000000000000000000000000000000000000000")...)
-		out = append(out, strRedirectParam...)
-		return out
-	},
-}
-
-
 
 func logRequestError(h *fasthttp.RequestHeader, format string, args ...interface{}) {
 	msg := fmt.Sprintf(format, args...)

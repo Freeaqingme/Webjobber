@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -11,10 +12,15 @@ import (
 	"hash/crc32"
 	"math"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
+
+	"github.com/Freeaqingme/fasthttp"
 )
+
+const ticketWindowBits = 9
 
 var (
 	pbkdfSecret       = []byte("Gu8aimeih3oev2Kae6kooshoo9iej1me7aoquieShueze6Faelang0ruu0ooquai")
@@ -168,7 +174,7 @@ func newPowCollection(barrier uint64) *powCollection {
 }
 
 func powIsValid(r *httpRequest) bool {
-	idx := powGetCollectionIndexFromAuthKey(getAuthKey(r, unixTime))
+	idx := powGetCollectionIndexFromAuthKey(getAuthKey(r, unixTime, authKeyWindowBits))
 	answer := r.PostArgs().PeekBytes([]byte("result"))
 
 	if len(answer) == 0 {
@@ -188,4 +194,62 @@ func powIsValid(r *httpRequest) bool {
 	}
 
 	return false
+}
+
+var redirectDstPool = &sync.Pool{
+	New: func() interface{} {
+		out := make([]byte, 0)
+		out = append(out, strUrlRedirect...)
+		out = append(out, []byte("00000000000000000000000000000000000000000000000000000000")...)
+		out = append(out, strRedirectParam...)
+		return out
+	},
+}
+
+func redirectToServePoW(r *httpRequest) {
+	v := redirectDstPool.Get()
+	dst := v.([]byte)
+	copy(dst[len(strUrlRedirect):len(strUrlRedirect)+56], getAuthKey(r, unixTime, authKeyWindowBits))
+
+	uri := r.RequestURI()
+	if !bytes.HasPrefix(r.RequestURI(), strUrlPrefix) {
+		dst = append(dst, uri...)
+	} else {
+		pos := bytes.Index(uri, strRedirectParam)
+		if pos != -1 {
+			dst = append(dst, uri[pos+len(strRedirectParam):]...)
+		} else {
+			dst = append(dst, strSlash...)
+		}
+	}
+
+	r.Response.Header.SetBytesKV(strLocation, dst)
+	r.Response.Header.SetStatusCode(302)
+	redirectDstPool.Put(v)
+}
+
+func powServeHtml(r *httpRequest) {
+	r.Response.Header.SetBytesKV(strCacheControlK, strCacheControlV)
+	r.Response.Header.SetBytesKV(strPragmaK, strPragmaV)
+	r.Response.Header.SetBytesKV(strExpires, strZero)
+	r.SetContentTypeBytes(strContentTypeHtml)
+	r.Response.AppendBody(filecontentsStart)
+	r.Response.AppendBody(getChallengeForAuthKey(getAuthKey(r, unixTime, authKeyWindowBits), true))
+	r.Response.AppendBody(filecontentsEnd)
+}
+
+func powGrantTicket(r *httpRequest) {
+	count := len(strUrlRedirect) + 56 + len(strRedirectParam)
+
+	if len(r.RequestURI()) < count {
+		panic("Given URL too short")
+	}
+
+	cookie := &fasthttp.Cookie{}
+	cookie.SetValueBytes(getAuthKey(r, unixTime, ticketWindowBits))
+	cookie.SetKeyBytes(strTicketKey)
+
+	r.Response.Header.SetBytesKV(strLocation, r.RequestURI()[count:])
+	r.Response.Header.SetStatusCode(302)
+	r.Response.Header.SetCookie(cookie)
 }

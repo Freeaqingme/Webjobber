@@ -14,14 +14,14 @@ var (
 	authkeySecret = []byte("phu8sae0Reih8vohngohjaix8zaeshei1Oochaideiz7jieti1ahfohJaBahngeP")
 )
 
-func hasValidAuthKey(r *httpRequest) bool {
+func (r *httpRequest) hasValidAuthKey() bool {
 	key := r.QueryArgs().PeekBytes(strAuthKey)
 	if len(key) == 0 {
 		return false
 	}
 
-	return hmac.Equal(key, getAuthKey(r, unixTime)) ||
-		hmac.Equal(key, getAuthKey(r, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2))))
+	return hmac.Equal(key, getAuthKey(r, unixTime, authKeyWindowBits)) ||
+		hmac.Equal(key, getAuthKey(r, unixTime-2-uint64(math.Pow(authKeyWindowBits, 2)), authKeyWindowBits))
 }
 
 var authKeyMacPool = &sync.Pool{
@@ -30,9 +30,9 @@ var authKeyMacPool = &sync.Pool{
 	},
 }
 
-func getAuthKey(r *httpRequest, unixTime uint64) []byte {
+func getAuthKey(r *httpRequest, unixTime uint64, barrierBits uint) []byte {
 	message := make([]byte, 24)
-	binary.LittleEndian.PutUint64(message, unixTime>>authKeyWindowBits)
+	binary.LittleEndian.PutUint64(message, unixTime>>barrierBits)
 	copy(message[8:], []byte(r.RemoteIP()))
 
 	mac := authKeyMacPool.Get().(hash.Hash)
