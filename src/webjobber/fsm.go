@@ -40,7 +40,7 @@ func init() {
 	reg(&fsmTransition{fsmHasTicket, (*httpRequest).hasTicket, fsmVoid /* fsmHitRateLimit */, fsmRequestedPoWPage})
 	reg(&fsmTransition{fsmRequestedPoWPage, (*httpRequest).requestedPoWPage, fsmHasValidAuthKey, fsmProtectedUrl})
 	reg(&fsmTransition{fsmHasValidAuthKey, (*httpRequest).hasValidAuthKey, fsmIsPost, fsmRedirectToPoW})
-	reg(&fsmTransition{fsmIsPost, (*httpRequest).isPost, fsmPowIsValid, fsmServePoW})
+	reg(&fsmTransition{fsmIsPost, (*httpRequest).IsPost, fsmPowIsValid, fsmServePoW})
 	reg(&fsmTransition{fsmPowIsValid, powIsValid, fsmPoWGrantTicket, fsmServePoW})
 	reg(&fsmTransition{fsmProtectedUrl, (*httpRequest).isProtectedUrl, fsmRedirectToPoW, fsmVoid /* fsmHighLoad */})
 
@@ -54,8 +54,6 @@ func fsmEnter(r *httpRequest) {
 }
 
 func fsmRun(r *httpRequest, id int, count int) {
-	var res bool
-
 	if count >= 100 {
 		panic("Reached max (100) transitions.")
 	}
@@ -69,18 +67,19 @@ func fsmRun(r *httpRequest, id int, count int) {
 		panic("Asked to move to a transition that does not exist")
 	}
 
-	res = fsmTransitions[id].check(r)
+	res := fsmTransitions[id].check(r)
 	if res {
 		id = fsmTransitions[id].ifTrue
 	} else {
 		id = fsmTransitions[id].ifFalse
 	}
 
-	if id != fsmVoid {
-		count++
-		fsmRun(r, id, count)
+	if id == fsmVoid {
+		return
 	}
 
+	count++
+	fsmRun(r, id, count)
 }
 
 func fsmRegisterTransition(transition *fsmTransition) {
@@ -113,10 +112,6 @@ func fsmRegisterEndpoint(endpoint *fsmEndpoint) {
 
 func (r *httpRequest) hasTicket() bool {
 	return false // todo
-}
-
-func (r *httpRequest) isPost() bool {
-	return r.IsPost()
 }
 
 func (r *httpRequest) isProtectedUrl() bool {
